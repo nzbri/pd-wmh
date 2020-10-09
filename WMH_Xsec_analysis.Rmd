@@ -1,0 +1,1077 @@
+---
+title: "WMH_Xsec"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+editor_options:
+  chunk_output_type: console
+date: "Last compiled on `r format(Sys.time(), '%d %B %Y')`"
+author: Tracy Melzer
+---
+
+This presents the plots and statistical analyses for the total WMH volume calculated using 4 different segmentation algorithms.
+
+# Libraries
+```{r, include=FALSE}
+# 
+#rm(list = ls())
+setwd('/home/tracym/Documents/R/WMH_Xsec/')
+
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggfortify)
+library("plotly")
+library(emmeans)
+library(rcompanion)
+library(pander)
+#Display 2 digists in the lm outputs 
+panderOptions("digits",2)
+library(lm.beta)
+library(ggeffects)
+library(ggpubr)
+library(car)
+library(lme4)
+
+```
+
+
+# Read in data
+```{r, include=FALSE }
+
+dat.base <- read.csv("dat_base_anon.csv")
+
+#Reorder diagnosis
+dat.base <- dat.base %>% 
+  mutate(diagnosis = fct_relevel(diagnosis, "Control-N", "PD-N", "PD-MCI", "PDD"))
+
+
+#Load performance metrics as well
+p.metrics = read.csv("performance_measures_anon.csv")
+
+p.metrics <- p.metrics %>% 
+  mutate(anon_id = factor(anon_id))
+```
+ 
+\newpage
+# Performance metrics
+## Table
+Here is a summary table of the performance metrics based on the 40 manually-traced gold standard WMH masks.  
+
+```{r performance metrics, echo=FALSE}
+
+p.metrics %>% 
+  group_by(algorithm) %>% 
+  summarise(mean_SI = mean(SI), sd_SI = sd(SI), 
+            mean_FPRc = mean(FPR_clusters), 
+            mean_FNRc = mean(FNR_clusters)) %>% 
+  knitr::kable()
+
+```
+
+
+## Plot
+A plot of the Dice Similarity Coefficient across the 4 methods in the training sample of n=40.    
+```{r, echo=FALSE, warning=FALSE}
+
+#colours <- c("#6495ED","#00008B","#339900",  "#FF9326", "#D92121")
+p.metrics %>% 
+  ggplot(aes(x=reorder(algorithm,-SI),y=SI)) +
+  geom_boxplot(outlier.shape=NA, width=0.8) +
+  #geom_line(aes(group=ID),alpha=0.2)+
+  geom_point(aes(color=algorithm), position = position_jitter(width=0.15),size=2.5) +
+  ylab("Dice Similarity Coefficient") + xlab("") +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(face="bold",size=15, color="black")) +
+  theme(axis.text.y=element_text(face="bold",size=15, color="black")) +
+  theme(axis.title.y=element_text(face="bold",size=15, color="black")) 
+ggsave("SI_metrics.pdf",width=8,height=5)
+
+
+```
+
+
+## Stats
+```{r, echo=FALSE}
+
+#A simple, non-repeated measures ANOVA
+#si.mod <- lm(SI ~ algorithm, data=p.metrics)
+#pander(si.mod)
+
+#fpr.mod <- lm(FPR ~ algorithm, data=p.metrics)
+#pander(fpr.mod)
+
+#fnr.mod <- lm(FNR ~ algorithm, data=p.metrics)
+#pander(fnr.mod)
+
+#der.mod <- lm(DER ~ algorithm, data=p.metrics)
+#pander(der.mod)
+
+
+
+#Run a repeated measured mixed model 
+si.mod.rep <- lmer(SI ~ algorithm + (1|anon_id), data=p.metrics)
+summary(si.mod.rep)
+si.mod.rep.emm <- emmeans(si.mod.rep, tukey ~ algorithm)
+plot(si.mod.rep.emm$contrasts,xlab="delta SI")
+eff.si <- eff_size(si.mod.rep.emm$contrasts, sigma = sigma(si.mod.rep), edf = df.residual(si.mod.rep), method="identity")
+ggsave("SI_pairwise.pdf",width=8,height=5)
+
+cat("Means and CIs for SI")
+knitr::kable(si.mod.rep.emm$emmeans)
+cat("BIANCA had larger SI relative to the other three methods.\n There was no difference among the other three algorithms.
+")
+cat("Contrasts")
+knitr::kable(si.mod.rep.emm$contrasts)
+
+
+#FPR
+fpr.mod.rep <- lmer(FPR ~ algorithm + (1|anon_id), data=p.metrics)
+summary(fpr.mod.rep)
+fpr.mod.rep.emm <- emmeans(fpr.mod.rep, tukey ~ algorithm)
+plot(fpr.mod.rep.emm$contrasts,xlab="delta SI")
+eff.fpr <- eff_size(fpr.mod.rep.emm$contrasts, sigma = sigma(fpr.mod.rep), edf = df.residual(fpr.mod.rep), method="identity")
+ggsave("FPR_pairwise.pdf",width=8,height=5)
+
+cat("Means and CIs for FPR")
+knitr::kable(fpr.mod.rep.emm$emmeans)
+
+
+#FNR
+fnr.mod.rep <- lmer(FNR ~ algorithm + (1|anon_id), data=p.metrics)
+summary(fnr.mod.rep)
+fnr.mod.rep.emm <- emmeans(fnr.mod.rep, tukey ~ algorithm)
+plot(fnr.mod.rep.emm$contrasts,xlab="delta SI")
+eff.fnr <- eff_size(fnr.mod.rep.emm$contrasts, sigma = sigma(fnr.mod.rep), edf = df.residual(fnr.mod.rep), method="identity")
+ggsave("FNR_pairwise.pdf",width=8,height=5)
+cat("Means and CIs for FNR")
+knitr::kable(fnr.mod.rep.emm$emmeans)
+
+#der
+der.mod.rep <- lmer(DER ~ algorithm + (1|anon_id), data=p.metrics)
+summary(der.mod.rep)
+der.mod.rep.emm <- emmeans(der.mod.rep, tukey ~ algorithm)
+plot(der.mod.rep.emm$contrasts,xlab="delta SI")
+eff.der <- eff_size(der.mod.rep.emm$contrasts, sigma = sigma(der.mod.rep), edf = df.residual(der.mod.rep), method="identity")
+ggsave("DER_pairwise.pdf",width=8,height=5)
+cat("Means and CIs for DER")
+knitr::kable(der.mod.rep.emm$emmeans)
+
+
+
+```
+
+
+\newpage
+# Summarise
+A few summary demographics cohort.   
+## Age
+```{r, echo=FALSE}
+
+dat.base %>% 
+  group_by(diagnosis) %>% 
+  dplyr::summarise(n(), age_m = mean(age), std = sd(age), ed_m = mean(education),ed_std = sd(education) ) %>% 
+  knitr::kable()
+
+dat.base %>% 
+  group_by(diagnosis) %>%
+  filter(global_z!='NA') %>% 
+  dplyr::summarise(n(),cog_m = mean(global_z), cog_std = sd(global_z) ) %>% 
+  knitr::kable()
+
+dat.base %>% 
+  group_by(diagnosis) %>%
+  filter(MoCA!='NA') %>% 
+  dplyr::summarise(n(),moca_m = mean(MoCA),moca_std = sd(MoCA)) %>% 
+  knitr::kable()
+
+dat.base %>% 
+  group_by(diagnosis) %>%
+  filter(Part_III!='NA') %>% 
+  dplyr::summarise(n(),updrs_m = mean(Part_III),updrs_std = sd(Part_III)) %>% 
+  knitr::kable()
+
+dat.base %>% 
+  group_by(diagnosis) %>%
+  filter(H_Y!='NA') %>% 
+  dplyr::summarise(n(),hy_m = median(H_Y),hy_min = min(H_Y), hy_max = max(H_Y)) %>% 
+  knitr::kable()
+
+
+```
+
+
+## Sex  
+```{r, echo=FALSE}
+
+dat.base %>% 
+  group_by(diagnosis,sex) %>% 
+  dplyr::summarise(n()) %>% 
+  knitr::kable()
+
+```
+
+
+# Method Comparison:Baseline
+## Data wrangle
+```{r, include=FALSE}
+dat.plot.base <- dat.base %>% 
+  gather(method,wmh, c(`bianca`,`lga`,`lpa`, `ubo`))%>%
+  mutate(method=factor(method)) %>% 
+  mutate(method = fct_relevel(method,"bianca","lpa", "ubo","lga")) %>% 
+  mutate(method = fct_recode(method,BIANCA="bianca",LPA="lpa", UBO="ubo",LGA="lga")) %>% 
+  mutate(diagnosis = fct_relevel(diagnosis, "Control-N", "PD-N", "PD-MCI", "PDD"))%>% 
+  mutate(diagnosis = revalue(diagnosis,c("Control-N" = "Control"))) %>% 
+  mutate(wmh.icv = wmh/ICV) 
+
+```
+
+
+\newpage
+## Figure: PD vs HC
+Plot PD vs controls for the 4 methods.  
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+colours <- c("#6495ED", "#339900",  "#FF9326","#D92121")
+dat.plot.base %>% 
+  ggplot(aes(x=np_group,y=(wmh+1))) +
+  #geom_violin()+
+  geom_boxplot(outlier.shape=NA, width=0.8) +
+  geom_point(aes(color=diagnosis), position = position_jitter(width=0.15), alpha=0.6, size=1) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  xlab("") +
+  scale_y_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  facet_wrap(~method,nrow = 1 ) +
+  theme(axis.text.x = element_text(angle=-45,hjust=0.1))
+  ggsave("WMH_Group_4method_facet_method.pdf",width=10,height=5)
+  
+```
+
+\newpage
+## Figure: ADJUSTED PD vs HC
+Plot the residuals from a model adjusting for age, sex, and ICV.  
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+#Copied from Figure: ADJUSTED Diagnosis, as it is the same modle (without diagnosis or group)
+#Fit a model without Group, then use those residuals in the plot.
+diag.lga <- lm(log(lga+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+diag.lpa <- lm(log(lpa+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+diag.bianca <- lm(log(bianca+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+diag.ubo <- lm(log(ubo+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+
+#Add the intercept back in to all residuals
+dat.base$resid.diag.lga <- residuals(diag.lga) + diag.lga$coefficients[1]
+dat.base$resid.diag.lpa <- residuals(diag.lpa) + diag.lpa$coefficients[1]
+dat.base$resid.diag.bianca <- residuals(diag.bianca) + diag.bianca$coefficients[1]
+dat.base$resid.diag.ubo <- residuals(diag.ubo) + diag.ubo$coefficients[1]
+
+dat.plot.base.pd.adjust <- dat.base %>% 
+  #gather(method,wmh, c(`bianca`,`lga`,`lpa`, `ubo`) )%>%
+  gather(method,resid, c(`resid.diag.bianca`,`resid.diag.lga`,`resid.diag.lpa`, `resid.diag.ubo`))%>%
+  mutate(method=factor(method)) %>% 
+  mutate(method = factor(method, labels = c('BIANCA', 'LGA', 'LPA', 'UBO'))) %>% 
+  mutate(method = fct_relevel(method,"BIANCA","LPA", "UBO","LGA")) %>% 
+  mutate(diagnosis = fct_relevel(diagnosis, "Control-N", "PD-N", "PD-MCI", "PDD"))%>% 
+  mutate(diagnosis = revalue(diagnosis,c("Control-N" = "Control"))) 
+ 
+  
+colours <- c("#6495ED", "#339900",  "#FF9326","#D92121")
+dat.plot.base %>%
+  ggplot(aes(x=np_group,y=wmh+1)) +
+  #geom_violin(data = dat.plot.base.pd.adjust, aes(x=np_group,y=exp(resid)), fill='gray90', alpha=0.8, trim=FALSE)+
+  geom_boxplot(data = dat.plot.base.pd.adjust, aes(x=np_group,y=exp(resid)), alpha=0.8, outlier.shape=NA,
+               width=0.5,lwd=0.3)+
+  geom_point(aes(color=diagnosis), position = position_jitter(width=0.1), alpha=0.4, size=1) +
+  scale_colour_manual (values=colours,name = "") +
+  xlab("") +
+  scale_y_log10('1+White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  facet_wrap(~method,nrow=1)+
+  theme(legend.position="none")
+  ggsave("WMH_adjusted_box_GROUP_LINEAR_4method_facet_method.pdf",width=8,height=5)
+
+  
+```
+
+
+
+\newpage
+## Figure: Diagnosis by Method
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+#colours <- c("#6495ED","#00008B","#339900",  "#FF9326","#D92121")
+colours <- c("#6495ED", "#339900",  "#FF9326","#D92121")
+dat.plot.base %>% 
+  ggplot(aes(x=diagnosis,y=(wmh+1))) +
+  #geom_violin()+
+  geom_boxplot(outlier.shape=NA, width=0.8) +
+  geom_point(aes(color=diagnosis), position = position_jitter(width=0.15), alpha=0.6, size=1) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  xlab("") +
+  scale_y_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  facet_wrap(~method) +
+  theme(axis.text.x = element_text(angle=-45,hjust=0.1), legend.title=element_blank())
+  ggsave("WMH_4method_facet_method.pdf",width=10,height=5)
+
+  
+```
+
+\newpage
+## Figure: ADJUSTED Diagnosis by Method  
+Plot the residuals from a model adjusting for age, sex, and ICV.  
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+#Same as above, but repeat here in case the other hasn't been run.
+#Fit a model without Diagnosis, then use those residuals in the plot.
+diag.lga <- lm(log(lga+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+diag.lpa <- lm(log(lpa+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+diag.bianca <- lm(log(bianca+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+diag.ubo <- lm(log(ubo+1)~age_s10 + sex + icv_dm ,dat=dat.base)
+
+dat.base$resid.diag.lga <- residuals(diag.lga) + diag.lga$coefficients[1]
+dat.base$resid.diag.lpa <- residuals(diag.lpa) + diag.lpa$coefficients[1]
+dat.base$resid.diag.bianca <- residuals(diag.bianca) + diag.bianca$coefficients[1]
+dat.base$resid.diag.ubo <- residuals(diag.ubo) + diag.ubo$coefficients[1]
+
+dat.plot.base.adjust <- dat.base %>% 
+  #gather(method,wmh, c(`bianca`,`lga`,`lpa`, `ubo`) )%>%
+  gather(method,resid, c(`resid.diag.bianca`,`resid.diag.lga`,`resid.diag.lpa`, `resid.diag.ubo`))%>%
+  mutate(method=factor(method)) %>% 
+  mutate(method = factor(method, labels = c('BIANCA', 'LGA', 'LPA', 'UBO'))) %>% 
+  mutate(method = fct_relevel(method,"BIANCA","LPA", "UBO","LGA")) %>% 
+  mutate(diagnosis = fct_relevel(diagnosis, "Control-N", "PD-N", "PD-MCI", "PDD"))%>% 
+  mutate(diagnosis = revalue(diagnosis,c("Control-N" = "Control"))) 
+ 
+
+  dat.plot.base %>%
+  ggplot(aes(x=diagnosis,y=wmh+1)) +
+  #geom_violin(data = dat.plot.base.adjust, aes(x=diagnosis,y=exp(resid)), fill='grey90', alpha=0.8, trim=FALSE)+
+  geom_boxplot(data = dat.plot.base.adjust, aes(x=diagnosis,y=exp(resid)), alpha=0.8, outlier.shape=NA, width=0.5,lwd=0.3)+
+  geom_point(aes(color=diagnosis), position = position_jitter(width=0.1), alpha=0.4, size=1) +
+  scale_colour_manual (values=colours,name = "") +
+  xlab("") +
+  #ylab("log(1+White Matter Hyperintensities)") +
+  scale_y_log10('1+White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  facet_wrap(~method,nrow=1) +
+  theme(axis.text.x = element_text(angle=-45,hjust=0.1), legend.position="none")
+  ggsave("WMH_adjusted_box_DIAGNOSIS_LINEAR_4method_facet_method.pdf",width=8,height=5)
+
+```
+
+
+\hfill\break
+\newpage
+# ANALYSIS
+## Group
+Simple PD vs Control comparisons across the 4 WMH segmentation algorithms.  
+```{r, echo=FALSE }
+
+lm.pd.lga <- lm(log(lga+1) ~ age_s10 + sex + icv_dm + group, data=dat.base)
+#summary(lm.pd.lga)
+#pander(lm.pd.lga)
+
+#Use the lm.beta package to produce standardized betas to allow a better comparison across the different models.
+lm.pd.lga.beta <- lm.beta(lm.pd.lga)
+pander(lm.pd.lga.beta)
+
+#Effect size
+lm.pd.lga.emm <- emmeans(lm.pd.lga, tukey ~ group)
+eff.pd.lga <- eff_size(lm.pd.lga.emm$contrasts,sigma = sigma(lm.pd.lga), edf = df.residual(lm.pd.lga), method="identity")
+
+
+lm.pd.lpa <- lm(log(lpa+1) ~ age_s10 + sex + icv_dm + group, data=dat.base)
+#summary(lm.pd.lpa)
+#pander(lm.pd.lpa)
+lm.pd.lpa.beta <- lm.beta(lm.pd.lpa)
+pander(lm.pd.lpa.beta)
+
+#Effect size
+lm.pd.lpa.emm <- emmeans(lm.pd.lpa, tukey ~ group)
+eff.pd.lpa <- eff_size(lm.pd.lpa.emm$contrasts,sigma = sigma(lm.pd.lpa), edf = df.residual(lm.pd.lpa), method="identity")
+
+
+
+lm.pd.bianca <- lm(log(bianca+1) ~ age_s10 + sex + icv_dm + group, data=dat.base)
+#summary(lm.pd.bianca)
+#pander(lm.pd.bianca)
+lm.pd.bianca.beta <- lm.beta(lm.pd.bianca)
+pander(lm.pd.bianca.beta)
+
+#Effect size
+lm.pd.bianca.emm <- emmeans(lm.pd.bianca, tukey ~ group)
+eff.pd.bianca <- eff_size(lm.pd.bianca.emm$contrasts,sigma = sigma(lm.pd.bianca), edf = df.residual(lm.pd.bianca), method="identity")
+
+
+
+
+lm.pd.ubo <- lm(log(ubo+1) ~ age_s10 + sex + icv_dm + group, data=dat.base)
+#summary(lm.pd.ubo)
+#pander(lm.pd.ubo)
+lm.pd.ubo.beta <- lm.beta(lm.pd.ubo)
+pander(lm.pd.ubo.beta)
+
+#Effect size
+lm.pd.ubo.emm <- emmeans(lm.pd.ubo, tukey ~ group)
+eff.pd.ubo <- eff_size(lm.pd.ubo.emm$contrasts,sigma = sigma(lm.pd.ubo), edf = df.residual(lm.pd.ubo), method="identity")
+
+
+
+
+
+cat("Standardized Betas for each method")
+#Display the standardized betas for each method
+print(lm.pd.lpa.beta)
+print(lm.pd.lga.beta)
+print(lm.pd.bianca.beta)
+print(lm.pd.ubo.beta)
+
+
+
+```
+
+\newpage
+## Diagnosis
+```{r, echo=FALSE, results='asis', fig.width=4,fig.height=3 }
+
+##LGA
+##**********************
+lm.diagnosis.lga <- lm(log(lga+1) ~ age_s10 + sex + icv_dm + diagnosis, data=dat.base)
+#summary(lm.diagnosis.lga)
+#pander(lm.diagnosis.lga)
+
+
+#Get standardized betas
+lm.diagnosis.lga <- lm.beta(lm.diagnosis.lga)
+pander(lm.diagnosis.lga)
+
+#cat("\n\n\\newpage\n")
+lm.diagnosis.lga.pairwise <- ref_grid(lm.diagnosis.lga)
+lm.diagnosis.lga.emm <- emmeans(lm.diagnosis.lga.pairwise, tukey ~ diagnosis)
+
+#Effect size
+eff.diag.lga <- eff_size(lm.diagnosis.lga.emm$contrasts,sigma = sigma(lm.diagnosis.lga), edf = df.residual(lm.diagnosis.lga), method="identity")
+
+plot(lm.diagnosis.lga.emm, xlab="LGA")
+ggsave("LGA_emm.pdf",width=8,height=5)
+
+cat(" \n")
+plot(lm.diagnosis.lga.emm$contrasts,xlab="LGA")
+ggsave("LGA_diagnosis_pairwise.pdf",width=8,height=5)
+
+##******************************************************
+
+
+cat("\n\n\\newpage\n")
+
+
+##LPA
+##*********************************************************
+lm.diagnosis.lpa <- lm(log(lpa+1) ~ age_s10 + sex + icv_dm + diagnosis, data=dat.base)
+#pander(lm.diagnosis.lpa)
+
+#Get standardized betas
+lm.diagnosis.lpa <- lm.beta(lm.diagnosis.lpa)
+pander(lm.diagnosis.lpa)
+
+lm.diagnosis.lpa.pairwise <- ref_grid(lm.diagnosis.lpa)
+lm.diagnosis.lpa.emm <- emmeans(lm.diagnosis.lpa.pairwise, tukey ~ diagnosis)
+
+#Effect size
+eff.diag.lpa <- eff_size(lm.diagnosis.lpa.emm$contrasts,sigma = sigma(lm.diagnosis.lpa), edf = df.residual(lm.diagnosis.lpa), method="identity")
+
+plot(lm.diagnosis.lpa.emm,xlab="LPA")
+ggsave("LPA_emm.pdf",width=8,height=5)
+
+cat(" \n")
+plot(lm.diagnosis.lpa.emm$contrasts,xlab="LPA")
+ggsave("LPA_diagnosis_pairwise.pdf",width=8,height=5)
+
+##******************************************************
+
+
+cat("\n\n\\newpage\n")
+
+
+##BIANCA
+##**************************************************
+lm.diagnosis.bianca <- lm(log(bianca+1) ~ age_s10 + sex + icv_dm + diagnosis, data=dat.base)
+#pander(lm.diagnosis.bianca)
+
+
+#Get standardized betas
+lm.diagnosis.bianca <- lm.beta(lm.diagnosis.bianca)
+pander(lm.diagnosis.bianca)
+
+lm.diagnosis.bianca.pairwise <- ref_grid(lm.diagnosis.bianca)
+lm.diagnosis.bianca.emm <- emmeans(lm.diagnosis.bianca.pairwise, tukey ~ diagnosis)
+
+eff.diag.bianca <- eff_size(lm.diagnosis.bianca.emm$contrasts,sigma = sigma(lm.diagnosis.bianca), edf = df.residual(lm.diagnosis.bianca), method="identity")
+
+plot(lm.diagnosis.bianca.emm, xlab="BIANCA")
+ggsave("BIANCA_emm.pdf",width=8,height=5)
+
+#Adds a line break in the pdf
+cat(" \n")
+plot(lm.diagnosis.bianca.emm$contrasts,  xlab="BIANCA")
+ggsave("BIANCA_diagnosis_pairwise.pdf",width=8,height=5)
+
+##******************************************************
+
+cat("\n\n\\newpage\n")
+
+##UBO
+##*************************************************
+lm.diagnosis.ubo <- lm(log(ubo+1) ~ age_s10 + sex + icv_dm + diagnosis, data=dat.base)
+#pander(lm.diagnosis.ubo)
+
+
+lm.diagnosis.ubo <- lm.beta(lm.diagnosis.ubo)
+pander(lm.diagnosis.ubo)
+
+lm.diagnosis.ubo.pairwise <- ref_grid(lm.diagnosis.ubo)
+lm.diagnosis.ubo.emm <- emmeans(lm.diagnosis.ubo.pairwise, tukey ~ diagnosis)
+
+#Effect size
+eff.diag.ubo <- eff_size(lm.diagnosis.ubo.emm$contrasts,sigma = sigma(lm.diagnosis.ubo), edf = df.residual(lm.diagnosis.ubo), method="identity")
+
+plot(lm.diagnosis.ubo.emm, xlab="UBO")
+ggsave("UBO_emm.pdf",width=8,height=5)
+
+#Adds a line in the PDF
+cat(" \n")
+plot(lm.diagnosis.ubo.emm$contrasts, xlab="UBO")
+ggsave("UBO_diagnosis_pairwise.pdf",width=8,height=5)
+
+##******************************************************
+
+
+
+```
+
+
+\newpage
+## Diagnosis pairwise comp
+\hfill\break
+Pairwise comparisons
+```{r echo=FALSE, results='asis', fig.width=6,fig.height=5}
+
+
+#Try for a single plot, facetted by method
+
+lga.diag.dat <- as.data.frame(confint(lm.diagnosis.lga.emm$contrasts)) %>% 
+  mutate(contrast = fct_relevel(contrast, "Control-N - PD-N", "Control-N - PD-MCI", "Control-N - PDD", "PD-N - PD-MCI", "PD-N - PDD", "PD-MCI - PDD")) %>% 
+  mutate(method = 'lga')
+
+lpa.diag.dat <- as.data.frame(confint(lm.diagnosis.lpa.emm$contrasts)) %>% 
+  mutate(contrast = fct_relevel(contrast, "Control-N - PD-N", "Control-N - PD-MCI", "Control-N - PDD", "PD-N - PD-MCI", "PD-N - PDD", "PD-MCI - PDD")) %>% 
+  mutate(method = 'lpa')
+
+bianca.diag.dat <- as.data.frame(confint(lm.diagnosis.bianca.emm$contrasts)) %>% 
+  mutate(contrast = fct_relevel(contrast, "Control-N - PD-N", "Control-N - PD-MCI", "Control-N - PDD", "PD-N - PD-MCI", "PD-N - PDD", "PD-MCI - PDD")) %>% 
+  mutate(method = 'bianca')
+
+ubo.diag.dat <- as.data.frame(confint(lm.diagnosis.ubo.emm$contrasts)) %>% 
+  mutate(contrast = fct_relevel(contrast, "Control-N - PD-N", "Control-N - PD-MCI", "Control-N - PDD", "PD-N - PD-MCI", "PD-N - PDD", "PD-MCI - PDD")) %>% 
+  mutate(method = 'ubo')
+
+####***************************************
+
+
+#Bind together
+diag.mod.plot <- rbind(lga.diag.dat, lpa.diag.dat, bianca.diag.dat, ubo.diag.dat)
+diag.mod.plot <- diag.mod.plot %>% 
+  mutate(method = fct_relevel(method, "lga", "lpa", "bianca", "ubo"))%>% 
+  mutate(method = factor(method, labels = c('LGA', 'LPA', 'BIANCA', 'UBO'))) %>%
+  mutate(method = fct_relevel(method,"BIANCA","LPA", "UBO","LGA")) %>% 
+  mutate(contrast = fct_recode(contrast, "Control - PD-N" = 'Control-N - PD-N', "Control - PD-MCI" = "Control-N - PD-MCI", "Control - PDD"= "Control-N - PDD" ))
+
+
+#All together
+diag.mod.plot %>% 
+    ggplot(aes(x=contrast, y=estimate)) + 
+  geom_crossbar(aes(ymax=upper.CL, ymin=lower.CL), fill='olivedrab4', alpha=0.5, fatten=0, width=0.2, linetype=0) +
+    geom_point(size=2.5)+
+  coord_flip() +
+  geom_hline(yintercept = 0)+
+  xlab("")+
+  ylab("Estimate") +
+  facet_wrap(~method) 
+ggsave("WMH_DIAG_Tukey_4method_facet_method.pdf",width=8,height=5)
+
+```
+
+
+\newpage
+## Cogz in PD
+\hfill\break
+Regressions between log(WMH+1) and Cogz aross the 4 methods.
+There is a model comparison within-method to determine the best model. The model with cogz~log(wmh+1) turns out to be the best (with the smallest AIC and BIC) in all 4 cases.
+```{r, echo=FALSE}
+
+#Run just in PD
+dat.base.pd <- dat.base %>% 
+  filter(group=='PD') %>% 
+  mutate(group=factor(group)) %>% 
+  mutate(diagnosis=factor(diagnosis))
+
+#2 step model comparison. 1st, confirm which of the models within each method is the best, then compare the best model across methods to each other. 
+
+#***LGA***
+########################################
+cogz.pd.lga.r <- lm(global_z ~ age_s10 + sex + lga.icv, data=dat.base.pd )
+pander(cogz.pd.lga.r)
+
+cogz.pd.lga.raw <- lm(global_z ~ age_s10 + sex + lga, data=dat.base.pd )
+pander(cogz.pd.lga.raw)
+
+
+cogz.pd.lga.ln <- lm(global_z ~ age_s10 + sex + log(lga+1), data=dat.base.pd )
+pander(cogz.pd.lga.ln)
+
+cogz.pd.lga.ln.icv <- lm(global_z ~ age_s10 + sex + log(lga+1) + icv_dm, data=dat.base.pd )
+pander(cogz.pd.lga.ln.icv)
+
+#Compare across the three within-method models
+anova(cogz.pd.lga.r, cogz.pd.lga.raw, cogz.pd.lga.ln, cogz.pd.lga.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(cogz.pd.lga.r, cogz.pd.lga.raw, cogz.pd.lga.ln, cogz.pd.lga.ln.icv))
+
+########################################
+
+
+#***LPA***
+########################################
+cogz.pd.lpa.r <- lm(global_z ~ age_s10 + sex + lpa.icv, data=dat.base.pd )
+pander(cogz.pd.lpa.r)
+
+cogz.pd.lpa.ln <- lm(global_z ~ age_s10 + sex + log(lpa+1), data=dat.base.pd )
+pander(cogz.pd.lpa.ln)
+
+cogz.pd.lpa.ln.icv <- lm(global_z ~ age_s10 + sex + log(lpa+1) + icv_dm, data=dat.base.pd )
+pander(cogz.pd.lpa.ln.icv)
+
+lpa.pd.cogz <- lm(log(lpa+1) ~ age_s10 + sex + global_z + icv_dm, data=dat.base.pd )
+pander(lpa.pd.cogz)
+
+
+#Compare across the three within-method models
+anova(cogz.pd.lpa.r, cogz.pd.lpa.ln, cogz.pd.lpa.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(cogz.pd.lpa.r, cogz.pd.lpa.ln, cogz.pd.lpa.ln.icv))
+########################################
+
+
+#***BIANCA***
+########################################
+cogz.pd.bianca.r <- lm(global_z ~ age_s10 + sex + bianca.icv, data=dat.base.pd )
+pander(cogz.pd.bianca.r)
+
+cogz.pd.bianca.ln <- lm(global_z ~ age_s10 + sex + log(bianca+1), data=dat.base.pd )
+pander(cogz.pd.bianca.ln)
+
+cogz.pd.bianca.ln.icv <- lm(global_z ~ age_s10 + sex + log(bianca+1) + icv_dm, data=dat.base.pd )
+pander(cogz.pd.bianca.ln.icv)
+
+#Compare across the three within-method models
+anova(cogz.pd.bianca.r, cogz.pd.bianca.ln, cogz.pd.bianca.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(cogz.pd.bianca.r, cogz.pd.bianca.ln, cogz.pd.bianca.ln.icv))
+
+########################################
+
+
+#***UBO***
+########################################
+cogz.pd.ubo.r <- lm(global_z ~ age_s10 + sex + ubo.icv, data=dat.base.pd )
+pander(cogz.pd.ubo.r)
+
+cogz.pd.ubo.ln <- lm(global_z ~ age_s10 + sex + log(ubo+1), data=dat.base.pd )
+pander(cogz.pd.ubo.ln)
+
+cogz.pd.ubo.ln.icv <- lm(global_z ~ age_s10 + sex + log(ubo+1) + icv_dm, data=dat.base.pd )
+pander(cogz.pd.ubo.ln.icv)
+
+#Compare across the three within-method models
+anova(cogz.pd.ubo.r, cogz.pd.ubo.ln, cogz.pd.ubo.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(cogz.pd.ubo.r, cogz.pd.ubo.ln, cogz.pd.ubo.ln.icv))
+
+########################################
+
+
+  
+```
+
+
+\newpage
+### Cogz standardized betas  
+This calculates and reports the standardized betas for the model with the lowest AIC for each method.  
+```{r, echo=FALSE}
+
+cogz.pd.lga.ln <- lm.beta(cogz.pd.lga.ln)
+pander(cogz.pd.lga.ln)
+print(cogz.pd.lga.ln)
+
+cogz.pd.lpa.ln <- lm.beta(cogz.pd.lpa.ln)
+pander(cogz.pd.lpa.ln)
+print(cogz.pd.lpa.ln)
+
+cogz.pd.bianca.ln <- lm.beta(cogz.pd.bianca.ln)
+pander(cogz.pd.bianca.ln)
+print(cogz.pd.bianca.ln)
+
+cogz.pd.ubo.ln <- lm.beta(cogz.pd.ubo.ln)
+pander(cogz.pd.ubo.ln)
+print(cogz.pd.ubo.ln)
+
+
+```
+
+\newpage
+## UPDRS in PD
+\hfill\break
+Regressions between log(WMH+1) and UPDRS aross the 4 methods.
+There is a model comparison within-method to determine the best model. The model with UPDRS~log(wmh+1) turns out to be the best (with the smallest AIC and BIC) in all 4 cases.
+```{r, echo=FALSE}
+
+#Run just in PD
+dat.base.pd <- dat.base %>% 
+  filter(group=='PD') %>% 
+  mutate(group=factor(group)) %>% 
+  mutate(diagnosis=factor(diagnosis))
+
+#2 step model comparison. 1st, confirm which of the models within each method is the best, then compare the best model across methods to each other. 
+
+#***LGA***
+########################################
+updrs.pd.lga.r <- lm(Part_III ~ age_s10 + sex + lga.icv, data=dat.base.pd )
+pander(updrs.pd.lga.r)
+
+updrs.pd.lga.raw <- lm(Part_III ~ age_s10 + sex + lga, data=dat.base.pd )
+pander(updrs.pd.lga.raw)
+
+updrs.pd.lga.both <- lm(Part_III ~ age_s10 + sex + lga + log(lga+1), data=dat.base.pd )
+pander(updrs.pd.lga.both)
+
+updrs.pd.lga.ln <- lm(Part_III ~ age_s10 + sex + log(lga+1), data=dat.base.pd )
+pander(updrs.pd.lga.ln)
+
+updrs.pd.lga.ln.icv <- lm(Part_III ~ age_s10 + sex + log(lga+1) + icv_dm, data=dat.base.pd )
+pander(updrs.pd.lga.ln.icv)
+
+#Compare across the three within-method models
+anova(updrs.pd.lga.r, updrs.pd.lga.raw, updrs.pd.lga.ln, updrs.pd.lga.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(updrs.pd.lga.r, updrs.pd.lga.raw, updrs.pd.lga.both, updrs.pd.lga.ln, updrs.pd.lga.ln.icv))
+
+########################################
+
+
+#***LPA***
+########################################
+updrs.pd.lpa.r <- lm(Part_III ~ age_s10 + sex + lpa.icv, data=dat.base.pd )
+pander(updrs.pd.lpa.r)
+
+updrs.pd.lpa.ln <- lm(Part_III ~ age_s10 + sex + log(lpa+1), data=dat.base.pd )
+pander(updrs.pd.lpa.ln)
+
+updrs.pd.lpa.ln.icv <- lm(Part_III ~ age_s10 + sex + log(lpa+1) + icv_dm, data=dat.base.pd )
+pander(updrs.pd.lpa.ln.icv)
+
+lpa.pd.updrs <- lm(log(lpa+1) ~ age_s10 + sex + Part_III + icv_dm, data=dat.base.pd )
+pander(lpa.pd.updrs)
+
+#Compare across the three within-method models
+anova(updrs.pd.lpa.r, updrs.pd.lpa.ln, updrs.pd.lpa.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(updrs.pd.lpa.r, updrs.pd.lpa.ln, updrs.pd.lpa.ln.icv))
+
+########################################
+
+
+#***BIANCA***
+########################################
+updrs.pd.bianca.r <- lm(Part_III ~ age_s10 + sex + bianca.icv, data=dat.base.pd )
+pander(updrs.pd.bianca.r)
+
+updrs.pd.bianca.ln <- lm(Part_III ~ age_s10 + sex + log(bianca+1), data=dat.base.pd )
+pander(updrs.pd.bianca.ln)
+
+updrs.pd.bianca.ln.icv <- lm(Part_III ~ age_s10 + sex + log(bianca+1) + icv_dm, data=dat.base.pd )
+pander(updrs.pd.bianca.ln.icv)
+
+#Compare across the three within-method models
+anova(updrs.pd.bianca.r, updrs.pd.bianca.ln, updrs.pd.bianca.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(updrs.pd.bianca.r, updrs.pd.bianca.ln, updrs.pd.bianca.ln.icv))
+
+########################################
+
+
+#***UBO***
+########################################
+updrs.pd.ubo.r <- lm(Part_III ~ age_s10 + sex + ubo.icv, data=dat.base.pd )
+pander(updrs.pd.ubo.r)
+
+updrs.pd.ubo.ln <- lm(Part_III ~ age_s10 + sex + log(ubo+1), data=dat.base.pd )
+pander(updrs.pd.ubo.ln)
+
+updrs.pd.ubo.ln.icv <- lm(Part_III ~ age_s10 + sex + log(ubo+1) + icv_dm, data=dat.base.pd )
+pander(updrs.pd.ubo.ln.icv)
+
+#Compare across the three within-method models
+anova(updrs.pd.ubo.r, updrs.pd.ubo.ln, updrs.pd.ubo.ln.icv)
+
+#Get AIC for within-method models
+pander(compareLM(updrs.pd.ubo.r, updrs.pd.ubo.ln, updrs.pd.ubo.ln.icv))
+
+########################################
+
+
+  
+```
+
+
+\newpage
+### UPDRS standardized betas  
+This calculates and reports the standardized betas for the model with the lowest AIC for each method.  
+```{r, echo=FALSE}
+
+updrs.pd.lga.ln <- lm.beta(updrs.pd.lga.ln)
+pander(updrs.pd.lga.ln)
+print(updrs.pd.lga.ln)
+
+updrs.pd.lpa.ln <- lm.beta(updrs.pd.lpa.ln)
+pander(updrs.pd.lpa.ln)
+print(updrs.pd.lpa.ln)
+
+updrs.pd.bianca.ln <- lm.beta(updrs.pd.bianca.ln)
+pander(updrs.pd.bianca.ln)
+print(updrs.pd.bianca.ln)
+
+updrs.pd.ubo.ln <- lm.beta(updrs.pd.ubo.ln)
+pander(updrs.pd.ubo.ln)
+print(updrs.pd.ubo.ln)
+
+
+```
+
+\newpage
+# Figures
+## Cogz in PD
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+#Not adjusted for age or sex (age explains most of the variance.)
+colours <- c( "#339900",  "#FF9326","#D92121")
+dat.plot.base %>% 
+  filter(np_group=='PD') %>% 
+  ggplot(aes(x=(wmh+1),y=global_z)) +
+  #geom_violin()+
+  geom_point(aes(color=diagnosis), alpha=0.6) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  scale_x_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  ylab("Global cognitive ability") +
+  facet_wrap(~method) +
+  stat_smooth(method="lm", color='black') 
+  #theme(axis.text.x = element_text(angle=-45,hjust=0.1))
+  ggsave("Cogz-WMH_4method_facet_method.pdf",width=10,height=5)
+
+  
+
+```
+
+\newpage
+### Account for covariates
+This plot adjusts for age and sex.
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+#Plot Cogz ~ wmh, adjusting for age and sex. 
+
+dat.base.pd.clean <- dat.base.pd %>% 
+  filter(global_z!='NA')
+
+z.base.pd <- lm(global_z ~ age_s10 + sex, data=dat.base.pd.clean)
+dat.base.pd.clean$resid <- residuals(z.base.pd) + z.base.pd$coefficients[1]
+
+dat.plot.base.clean <- dat.base.pd.clean %>% 
+  gather(method,wmh, c(`bianca`,`lga`,`lpa`, `ubo`))%>%
+  mutate(method=factor(method)) %>% 
+  mutate(method = factor(method, labels = c('BIANCA', 'LGA', 'LPA', 'UBO'))) %>%
+  mutate(method = fct_relevel(method,"BIANCA","LPA", "UBO","LGA")) %>%
+  mutate(diagnosis = fct_relevel(diagnosis, "PD-N", "PD-MCI", "PDD"))%>% 
+  mutate(wmh.icv = wmh/ICV)
+
+  
+  colours <- c( "#339900",  "#FF9326","#D92121")
+  dat.plot.base.clean %>% 
+  filter(np_group=='PD') %>% 
+  ggplot(aes(x=(wmh+1),y=global_z)) +
+  #geom_violin()+
+  geom_point(aes(color=diagnosis), alpha=0.6) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  scale_x_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  ylab("Global cognitive ability (z score)") +
+  facet_wrap(~method,nrow=1) +
+  stat_smooth(aes(x=(wmh+1),y=resid),method="lm", color='black') +
+  theme(legend.position="none")
+  ggsave("Cogz-WMH_ADJUSTED_LINEAR_4method_facet_method.pdf",width=8,height=3.5)
+  
+ 
+
+```
+
+\newpage
+## UPDRS in PD
+### Account for covariates
+This plot adjusts for age and sex.
+\hfill\break
+```{r, echo=FALSE, warning=FALSE}
+
+#Plot Cogz ~ wmh, adjusting for age and sex. 
+
+dat.base.pd.updrs <- dat.base.pd %>% 
+  filter(Part_III!='NA')
+
+updrs.base.pd <- lm(Part_III ~ age_s10 + sex, data=dat.base.pd.updrs)
+dat.base.pd.updrs$resid <- residuals(updrs.base.pd) + updrs.base.pd$coefficients[1]
+
+dat.base.pd.updrs <- dat.base.pd.updrs %>% 
+  gather(method,wmh, c(`bianca`,`lga`,`lpa`, `ubo`))%>%
+  mutate(method=factor(method)) %>% 
+  mutate(method = factor(method, labels = c('BIANCA', 'LGA', 'LPA', 'UBO'))) %>%
+  mutate(method = fct_relevel(method,"BIANCA","LPA", "UBO","LGA")) %>%
+  mutate(diagnosis = fct_relevel(diagnosis, "PD-N", "PD-MCI", "PDD"))%>% 
+  mutate(wmh.icv = wmh/ICV)
+
+  
+  dat.base.pd.updrs %>% 
+  filter(np_group=='PD') %>% 
+  ggplot(aes(x=(wmh+1),y=Part_III)) +
+  #geom_violin()+
+  geom_point(aes(color=diagnosis), alpha=0.6) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  scale_x_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  ylab("Motor impairment (UPDRS-III)") +
+  facet_wrap(~method,nrow=1) +
+  stat_smooth(aes(x=(wmh+1),y=resid),method="lm", color='black') +
+  theme(legend.position="none")
+  ggsave("UPDRS-WMH_ADJUSTED_LINEAR_4method_facet_method.pdf",width=8,height=3.5)
+
+```
+
+
+# Plots for Paper
+## BIANCA plots
+```{r, echo=FALSE, warning=FALSE}
+
+#PD vs Control
+colours <- c("#6495ED", "#339900",  "#FF9326","#D92121")
+dat.plot.base.pd.adjust.bianca <- dat.plot.base.pd.adjust  %>% 
+  filter(method=='BIANCA') %>% 
+  mutate(method = factor(method))
+
+p1 <- dat.plot.base %>%
+  filter(method=='BIANCA') %>%
+  ggplot(aes(x=np_group,y=wmh+1)) +
+  #geom_violin(data = dat.plot.base.pd.adjust, aes(x=np_group,y=exp(resid)), fill='gray90', alpha=0.8, trim=FALSE)+
+  geom_boxplot(data = dat.plot.base.pd.adjust.bianca, aes(x=np_group,y=exp(resid)), alpha=0.8, outlier.shape=NA,
+               width=0.5,lwd=0.3)+
+  geom_point(aes(color=diagnosis), position = position_jitter(width=0.1), alpha=0.4, size=1) +
+  scale_colour_manual (values=colours,name = "") +
+  xlab("") +
+  scale_y_log10('1+White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  facet_wrap(~method,nrow=1)+
+  theme(legend.position="none")
+
+
+
+#######Diagnosis
+colours <- c("#6495ED", "#339900",  "#FF9326","#D92121")
+
+dat.plot.base.adjust.bianca <- dat.plot.base.adjust %>% 
+  filter(method=='BIANCA') %>% 
+  mutate(method = factor(method)) 
+  
+p2 <-dat.plot.base %>%
+    filter(method=='BIANCA') %>% 
+  ggplot(aes(x=diagnosis,y=wmh+1)) +
+  #geom_violin(data = dat.plot.base.adjust, aes(x=diagnosis,y=exp(resid)), fill='grey90', alpha=0.8, trim=FALSE)+
+  geom_boxplot(data = dat.plot.base.adjust.bianca, aes(x=diagnosis,y=exp(resid)), alpha=0.8, outlier.shape=NA, width=0.5,lwd=0.3)+
+  geom_point(aes(color=diagnosis), position = position_jitter(width=0.1), alpha=0.4, size=1) +
+  scale_colour_manual (values=colours,name = "") +
+  xlab("") +
+  #ylab("log(1+White Matter Hyperintensities)") +
+  scale_y_log10('1+White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  #facet_wrap(~method,nrow=1) +
+  theme(axis.text.x = element_text(angle=-45,hjust=0.1), legend.position="none")
+
+
+##############Pairwise
+p2.5 <- diag.mod.plot %>% 
+  filter(method=='BIANCA') %>% 
+    ggplot(aes(x=contrast, y=estimate)) + 
+  geom_crossbar(aes(ymax=upper.CL, ymin=lower.CL), fill='olivedrab4', alpha=0.5, fatten=0, width=0.2, linetype=0) +
+    geom_point(size=2.5)+
+  coord_flip() +
+  geom_hline(yintercept = 0)+
+  xlab("")+
+  ylab("Estimate") +
+  scale_y_continuous(limits=c(-0.75, 0.3))
+  #facet_wrap(~method) 
+
+  #########CogZ
+  colours <- c( "#339900",  "#FF9326","#D92121")
+p3 <- dat.plot.base.clean %>% 
+  filter(np_group=='PD') %>% 
+    filter(method=='BIANCA') %>% 
+  ggplot(aes(x=(wmh+1),y=global_z)) +
+  #geom_violin()+
+  geom_point(aes(color=diagnosis), alpha=0.6) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  scale_x_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  ylab("Global cognitive ability (z score)") +
+  #facet_wrap(~method,nrow=1) +
+  stat_smooth(aes(x=(wmh+1),y=resid),method="lm", color='black') +
+  theme(legend.position="none")
+
+
+#####UPDRS 3
+p4 <-  dat.base.pd.updrs %>% 
+  filter(np_group=='PD') %>% 
+    filter(method=='BIANCA') %>% 
+  ggplot(aes(x=(wmh+1),y=Part_III)) +
+  #geom_violin()+
+  geom_point(aes(color=diagnosis), alpha=0.6) +
+  scale_colour_manual (values=colours,name = "diagnosis") + 
+  scale_x_log10('1 + White Matter Hyperintensities (ml)',limits=c(0.9, 100)) +
+  ylab("Motor impairment (UPDRS-III)") +
+  #facet_wrap(~method,nrow=1) +
+  stat_smooth(aes(x=(wmh+1),y=resid),method="lm", color='black') +
+  theme(legend.position="none")
+
+
+
+#####Arrange the grid
+
+
+ggarrange(p2,p2.5,p3,p4, ncol=2,nrow=2,labels="AUTO")
+
+ggsave("BIANCA_Figure.pdf",width=10,height=8) 
+
+```
+
+
